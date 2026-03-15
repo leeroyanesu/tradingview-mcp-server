@@ -213,7 +213,7 @@ async def get_mt5_ohlc(symbol: str, timeframe_str: str, count: int = 100) -> Opt
     # Initialize MT5 with credentials from .env
     mt5_login = os.getenv("MT5_LOGIN")
     init_params = {
-        "login": int(mt5_login) if mt5_login else None,
+        "login": int(mt5_login) if mt5_login else 0,
         "password": os.getenv("MT5_PASSWORD"),
         "server": os.getenv("MT5_SERVER"),
         "path": os.getenv("MT5_PATH")
