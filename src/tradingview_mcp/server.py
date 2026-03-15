@@ -193,7 +193,7 @@ async def get_chart_snapshot(
 
 
 
-async def get_mt5_ohlc(symbol: str, timeframe_str: str, count: int = 100) -> Optional[List[Dict[str, Any]]]:
+async def get_mt5_ohlc(symbol: str, timeframe_str: str, count: int = 150) -> Optional[List[Dict[str, Any]]]:
     """Fetch OHLC data from MetaTrader 5."""
     # Map TradingView intervals to MT5 timeframes
     tf_map = {
@@ -258,6 +258,7 @@ async def render_lightweight_chart(
     height: int = 600
 ) -> Optional[bytes]:
     """Render data using Lightweight Charts via Playwright and take a screenshot."""
+    tmp_path = None
     try:
         template_path = Path(__file__).parent / "chart_template.html"
         if not template_path.exists():
@@ -271,27 +272,50 @@ async def render_lightweight_chart(
         # Build the HTML content with data injected
         with open(template_path, 'r') as f:
             html = f.read()
+        
+        # Escape symbol for JS string safety
+        safe_symbol = symbol.replace('"', '\\"').replace("'", "\\'")
             
         # Inject data before the closing body tag
         data_injection = f"""
         <script>
             window.chartData = {{
                 data: {json.dumps(data)},
-                symbol: "{symbol}",
+                symbol: "{safe_symbol}",
                 theme: "{theme}"
             }};
-            initChart(window.chartData.data, window.chartData.symbol, window.chartData.theme);
+            // Defer until library is confirmed loaded
+            (function waitAndInit() {{
+                if (typeof LightweightCharts !== 'undefined') {{
+                    initChart(window.chartData.data, window.chartData.symbol, window.chartData.theme);
+                }} else {{
+                    setTimeout(waitAndInit, 50);
+                }}
+            }})();
         </script>
         """
         html = html.replace('</body>', f'{data_injection}</body>')
         
-        # Load HTML
-        await page.set_content(html)
+        # Write to a temp file and load via file:// so external CDN scripts load properly.
+        # page.set_content() can block external script loading in some Playwright versions.
+        import tempfile, os as _os
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
+            f.write(html)
+            tmp_path = f.name
         
-        # Wait for the chart library to load and render
-        # We check if LightweightCharts is defined in the page
-        await page.wait_for_function("window.LightweightCharts !== undefined")
-        await asyncio.sleep(2) # Buffer for rendering
+        file_url = Path(tmp_path).as_uri()
+        # networkidle ensures the CDN script has finished loading
+        await page.goto(file_url, wait_until="networkidle", timeout=30000)
+        
+        # Wait for initChart to complete and set window.chartReady = true
+        try:
+            await page.wait_for_function("window.chartReady === true", timeout=10000)
+        except Exception:
+            # If chartReady never became true, take a screenshot anyway for diagnostics
+            logger.warning("window.chartReady not set; chart may be empty or errored")
+        
+        # Small buffer for final paint
+        await asyncio.sleep(0.5)
         
         # Take screenshot
         screenshot = await page.screenshot(type='png')
@@ -300,7 +324,18 @@ async def render_lightweight_chart(
         return screenshot
     except Exception as e:
         logger.error(f"Failed to render lightweight chart: {e}")
+        try:
+            await page.close()
+        except Exception:
+            pass
         return None
+    finally:
+        if tmp_path:
+            try:
+                import os as _os
+                _os.unlink(tmp_path)
+            except Exception:
+                pass
 
 
 async def validate_session() -> bool:

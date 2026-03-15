@@ -1,6 +1,6 @@
 # TradingView MCP Server 📈
 
-A **lightweight** Model Context Protocol (MCP) server for fetching TradingView chart snapshots. Uses Playwright for efficient browser automation with persistent sessions and cookie-based authentication.
+A **lightweight** Model Context Protocol (MCP) server for fetching TradingView chart snapshots with **automatic MetaTrader 5 fallback**. Uses Playwright for efficient browser automation with persistent sessions and cookie-based authentication. When TradingView fails or a symbol isn't available, it seamlessly renders charts from live MT5 OHLC data using [Lightweight Charts](https://tradingview.github.io/lightweight-charts/).
 
 > **Note**: This uses Playwright because TradingView renders charts client-side with JavaScript/Canvas. There is no pure HTTP API for chart images. This is the lightest possible working solution (~150MB RAM vs ~500MB with Selenium).
 
@@ -12,12 +12,16 @@ A **lightweight** Model Context Protocol (MCP) server for fetching TradingView c
 - 🎨 **Customizable**: Configure chart dimensions, intervals, and themes
 - 🔧 **MCP Compatible**: Works with any MCP-enabled client (Claude Desktop, etc.)
 - ♻️ **Efficient**: Reuses browser instances across multiple requests
+- 📉 **MT5 Fallback**: Automatically fetches OHLC data from MetaTrader 5 and renders via Lightweight Charts when TradingView fails
+- 🕯️ **Offline Chart Rendering**: Render any OHLC dataset as a candlestick chart via the `render_ohlc_chart` tool — no TradingView session required
+- 📊 **150 candles by default**: MT5 fallback fetches 150 candles for richer historical context
 
 ## 📋 Prerequisites
 
 - Python 3.10 or higher
 - A TradingView account (free or paid)
 - TradingView session cookies
+- *(Optional, for fallback)* MetaTrader 5 terminal installed and running with a valid account
 
 ## Table of Contents
 
@@ -27,6 +31,7 @@ A **lightweight** Model Context Protocol (MCP) server for fetching TradingView c
 - [Configuration](#-configuration)
 - [Available Tools](#️-available-tools)
 - [Symbol Format](#-symbol-format)
+- [MT5 Fallback](#-mt5-fallback)
 - [Troubleshooting](#-troubleshooting)
 - [Performance](#-performance)
 - [Contributing](#-contributing)
@@ -36,7 +41,7 @@ A **lightweight** Model Context Protocol (MCP) server for fetching TradingView c
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/tradingview-mcp.git
+git clone https://github.com/leeroyanesu/tradingview-mcp.git
 cd tradingview-mcp
 ```
 
@@ -67,7 +72,7 @@ python -m playwright install chromium
    ```bash
    # Windows
    copy .env.example .env
-   
+
    # Linux/Mac
    cp .env.example .env
    ```
@@ -80,34 +85,35 @@ python -m playwright install chromium
    - Find and copy these two cookie values:
      - `sessionid` → Copy the entire value
      - `sessionid_sign` → Copy the entire value
-   
+
    > ⚠️ **Important**: Copy the full values including any special characters (slashes, equals signs, etc.). Don't add quotes or extra spaces.
 
 3. Edit `.env` and paste your values:
    ```env
    TRADINGVIEW_SESSION_ID=your_actual_session_id_here
    TRADINGVIEW_SESSION_ID_SIGN=your_actual_session_id_sign_here
-   ```
-   
-   Example (with fake values):
-   ```env
-   TRADINGVIEW_SESSION_ID=47zlhkbl2weohrhmjgufeg1o24droaod
-   TRADINGVIEW_SESSION_ID_SIGN=v3:6S2OD9ta349/yqN0RdCeK3UKxTl/tJr4AOoPRUa0Crk=
+
+   # Optional: MetaTrader 5 credentials for automatic fallback
+   MT5_LOGIN=40931844
+   MT5_PASSWORD=your_mt5_password
+   MT5_SERVER=Deriv-Demo
+   MT5_PATH=C:\Program Files\MetaTrader 5 Terminal\terminal64.exe
    ```
 
 ### 5. Test your setup (Optional but recommended)
 
-Create a test file `test.py`:
+```bash
+python test_mt5_direct.py
+```
+
+If MT5 initializes successfully you'll see account info printed. You can also test the TradingView snapshot:
 
 ```python
-import asyncio
-import sys
+import asyncio, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-
 from dotenv import load_dotenv
 load_dotenv()
-
 from tradingview_mcp.server import get_chart_snapshot
 
 async def test():
@@ -121,18 +127,9 @@ async def test():
 asyncio.run(test())
 ```
 
-Run it:
-```bash
-python test.py
-```
-
-If successful, you'll see `test_chart.png` with a Bitcoin chart!
-
 ## 🎯 Usage
 
 ### Quick Start - Testing Locally
-
-After installation, test the server:
 
 ```bash
 python src/tradingview_mcp/server.py
@@ -170,7 +167,11 @@ Add this to your Claude Desktop config file:
       "args": ["C:\\path\\to\\tradingview-mcp\\src\\tradingview_mcp\\server.py"],
       "env": {
         "TRADINGVIEW_SESSION_ID": "your_session_id",
-        "TRADINGVIEW_SESSION_ID_SIGN": "your_session_id_sign"
+        "TRADINGVIEW_SESSION_ID_SIGN": "your_session_id_sign",
+        "MT5_LOGIN": "40931844",
+        "MT5_PASSWORD": "your_mt5_password",
+        "MT5_SERVER": "Deriv-Demo",
+        "MT5_PATH": "C:\\Program Files\\MetaTrader 5 Terminal\\terminal64.exe"
       }
     }
   }
@@ -183,13 +184,13 @@ Add this to your Claude Desktop config file:
 
 ### Example Queries in Claude
 
-Once configured, you can ask Claude:
-
 ```
 - "Get me a daily chart of Bitcoin"
 - "Show me AAPL on 1-hour timeframe"
 - "Fetch a weekly chart for NASDAQ:TSLA with light theme"
 - "Get BINANCE:ETHUSDT 5-minute chart"
+- "Show me Volatility 50 Index on a daily chart"
+- "Render a chart from this OHLC data: [...]"
 - "Validate my TradingView session"
 - "What timeframes are available?"
 ```
@@ -198,11 +199,11 @@ Once configured, you can ask Claude:
 
 ### 1. `get_chart_snapshot`
 
-Fetch a TradingView chart snapshot.
+Fetch a TradingView chart snapshot with **automatic MT5 fallback**. If the symbol isn't found on TradingView (or the session fails), it transparently fetches live OHLC data from MetaTrader 5 and renders a candlestick chart using Lightweight Charts.
 
 **Parameters:**
-- `symbol` (required): Trading pair in TradingView format
-  - Examples: `"BINANCE:BTCUSDT"`, `"NASDAQ:AAPL"`, `"BITSTAMP:BTCUSD"`
+- `symbol` (required): Trading pair in TradingView format or MT5 name
+  - Examples: `"BINANCE:BTCUSDT"`, `"NASDAQ:AAPL"`, `"Volatility 50 Index"`
 - `interval` (optional): Chart timeframe (default: `"D"`)
   - Minutes: `"1"`, `"5"`, `"15"`, `"30"`, `"60"`, `"240"`
   - Days/Weeks/Months: `"D"`, `"W"`, `"M"`
@@ -210,12 +211,45 @@ Fetch a TradingView chart snapshot.
 - `height` (optional): Image height in pixels (default: `600`)
 - `theme` (optional): `"dark"` or `"light"` (default: `"dark"`)
 
+**Fallback behavior:**
+1. Attempts TradingView snapshot (up to 2 tries)
+2. If both fail → fetches 150 candles from MetaTrader 5
+3. Renders an interactive candlestick chart via Lightweight Charts v4
+4. Returns the chart image with source attribution
+
 **Example:**
 ```
-Get me a daily chart of Bitcoin on Binance
+Get me a daily chart of Volatility 50 Index
 ```
 
-### 2. `validate_session`
+---
+
+### 2. `render_ohlc_chart`
+
+Render a candlestick chart directly from a provided OHLC data array — no TradingView session needed. Accepts data from any source (MT5, CSV, API, etc.).
+
+**Parameters:**
+- `ohlc_data` (required): Array of OHLC objects
+  ```json
+  [
+    {"time": 1701820800, "open": 136.78, "high": 142.84, "low": 135.44, "close": 141.94},
+    ...
+  ]
+  ```
+  Time can be a Unix timestamp (seconds) **or** a date string `"YYYY-MM-DD"`.
+- `symbol` (required): Symbol name to display on the chart (e.g., `"Volatility 50 Index"`)
+- `width` (optional): Image width (default: `1200`)
+- `height` (optional): Image height (default: `600`)
+- `theme` (optional): `"dark"` or `"light"` (default: `"dark"`)
+
+**Example:**
+```
+Render a chart from this OHLC data for Volatility 50 Index
+```
+
+---
+
+### 3. `validate_session`
 
 Check if your TradingView session credentials are valid.
 
@@ -224,13 +258,35 @@ Check if your TradingView session credentials are valid.
 Validate my TradingView session
 ```
 
-### 3. `list_timeframes`
+---
+
+### 4. `list_timeframes`
 
 List all available chart timeframes/intervals.
 
 **Example:**
 ```
 What timeframes are available?
+```
+
+## 📉 MT5 Fallback
+
+When TradingView cannot render a chart (invalid session, symbol not on TradingView, network issues), the server automatically:
+
+1. Initializes MetaTrader 5 using credentials from `.env`
+2. Fetches **150 OHLC candles** for the requested symbol and timeframe
+3. Renders a full-screen candlestick chart using **Lightweight Charts v4.2.0** (pinned to avoid v5 breaking changes)
+4. Returns the PNG screenshot with source: `MetaTrader 5 (Lightweight Charts fallback)`
+
+> **Tip**: Symbols like `"Volatility 50 Index"` exist only on Deriv/MT5 brokers — the fallback is designed exactly for these cases.
+
+### MT5 `.env` Variables
+
+```env
+MT5_LOGIN=40931844          # Your MT5 account number (integer)
+MT5_PASSWORD=your_password
+MT5_SERVER=Deriv-Demo       # Your broker's server name
+MT5_PATH=C:\Program Files\MetaTrader 5 Terminal\terminal64.exe
 ```
 
 ## 📊 Symbol Format
@@ -247,127 +303,81 @@ TradingView uses the format: `EXCHANGE:SYMBOL`
 | `BITSTAMP:BTCUSD` | Bitcoin/USD on Bitstamp |
 | `FX:EURUSD` | EUR/USD forex pair |
 | `COINBASE:ETHUSD` | Ethereum/USD on Coinbase |
-
-### Finding Symbol Names
-
-1. Go to [TradingView](https://www.tradingview.com)
-2. Search for your desired asset
-3. Look at the URL or chart title for the format `EXCHANGE:SYMBOL`
+| `Volatility 50 Index` | Deriv synthetic (MT5 fallback) |
 
 ## 🔧 Architecture
 
-This MCP server uses **Playwright for lightweight browser automation**:
+```
+get_chart_snapshot call
+│
+├── Attempt 1: TradingView Playwright snapshot
+├── Attempt 2: TradingView retry
+│
+└── Fallback: MetaTrader 5
+    ├── mt5.initialize() with .env credentials
+    ├── copy_rates_from_pos() → 150 OHLC candles
+    └── render_lightweight_chart()
+        ├── Injects data into chart_template.html
+        ├── Loads via file:// URL (ensures CDN scripts load)
+        ├── Waits for networkidle + window.chartReady
+        └── Screenshots PNG
+```
 
-1. **Authentication**: Session cookies passed to browser context
-2. **Chart Generation**: Playwright navigates to TradingView and captures screenshots
-3. **Efficiency**: Persistent browser instances reused across requests
-4. **MCP Protocol**: Communicates via stdio with MCP clients
-
-**Why Playwright (Not Pure HTTP)?**
-
-- TradingView renders charts client-side with JavaScript/Canvas
-- No server-side API exists for chart image generation
-- Playwright is lighter than Selenium (~150MB vs ~500MB RAM)
-- Headless mode with optimized flags minimizes resource usage
-- Browser reuse makes subsequent requests very fast (1-2 seconds)
-
-✅ **This is the lightest possible approach for TradingView charts**
+**Chart Renderer Details:**
+- Uses **Lightweight Charts v4.2.0** (pinned — v5 removed `addCandlestickSeries`)
+- Loaded via `file://` URL in Playwright so the CDN script is guaranteed to execute
+- `window.chartReady` flag used for reliable render detection instead of blind `sleep()`
 
 ## 🐛 Troubleshooting
+
+### MT5 Login Fails
+
+**Problem**: `(-2, 'Invalid "login" argument')`
+
+**Solution**: Ensure `MT5_LOGIN` is stored as a plain integer in `.env` — no quotes. The server casts it with `int()` automatically.
 
 ### Cookie/Authentication Issues
 
 **Problem**: "Session credentials are not working" or "Invalid session"
 
 **Solutions**:
-1. **Check for trailing commas or spaces**: Make sure your `.env` file has no extra characters
-   ```env
-   # ❌ Wrong (has comma)
-   TRADINGVIEW_SESSION_ID=abc123,
-   
-   # ✅ Correct
-   TRADINGVIEW_SESSION_ID=abc123
-   ```
-
-2. **Refresh cookies**: Session cookies expire after ~30 days
-   - Log out and back into TradingView
-   - Get fresh cookies from Developer Tools
-   - Update your `.env` file
-
-3. **Check you're logged in**: Make sure you're logged into TradingView when copying cookies
-
-4. **Copy entire value**: Include special characters (=, /, :, etc.)
+1. No trailing commas/spaces in `.env`
+2. Refresh cookies — they expire after ~30 days
+3. Make sure you were logged in when copying cookies
 
 ### Symbol Not Found
 
-**Problem**: "Failed to fetch chart snapshot"
+**Problem**: "Failed to fetch chart snapshot" and MT5 fallback returns no data
 
 **Solutions**:
-1. Use correct format: `EXCHANGE:SYMBOL` (all uppercase)
-   - ✅ `BINANCE:BTCUSDT`
-   - ❌ `btcusdt` or `binance:btcusdt`
-
-2. Verify symbol exists on TradingView.com
-
-3. Test with a known symbol first: `BINANCE:BTCUSDT` or `NASDAQ:AAPL`
+1. Use correct TradingView format: `EXCHANGE:SYMBOL` (uppercase)
+2. For synthetic/broker-specific symbols, use the **exact MT5 symbol name** (e.g., `Volatility 50 Index`)
+3. Verify the symbol is available in your MT5 Market Watch
 
 ### Timeout Errors
 
-**Problem**: "Timeout exceeded" or slow performance
+**Problem**: "Timeout exceeded" during chart rendering
 
 **Solutions**:
-1. Check internet connection and TradingView.com accessibility
-2. First request takes longer (5-8s) while browser starts
+1. Check internet connection (CDN script loads from unpkg.com)
+2. First request takes longer (5-8s) due to browser startup
 3. Subsequent requests are faster (3-5s) due to browser reuse
-4. If persistent, restart the MCP server
 
 ### Playwright Installation Issues
 
-**Problem**: "Playwright not found" or browser download fails
-
-**Solutions**:
 ```bash
-# Reinstall Playwright
 pip uninstall playwright
 pip install playwright
-
-# Install browsers again
 python -m playwright install chromium
-
-# If still failing, install system dependencies (Linux)
-sudo playwright install-deps
 ```
 
 ### Claude Desktop Not Recognizing Server
 
-**Problem**: Tools don't appear in Claude Desktop
-
-**Solutions**:
-1. Check JSON syntax in config file (use a JSON validator)
-2. Use **absolute paths** (not relative)
-3. Verify Python path is correct:
-   ```bash
-   # Windows
-   where python
-   
-   # Mac/Linux
-   which python
-   ```
-4. **Completely restart** Claude Desktop (not just reload)
-5. Check Claude logs for errors:
-   - Windows: `%APPDATA%\Claude\logs\`
-   - Mac: `~/Library/Logs/Claude/`
-
-### Performance Issues
-
-**Problem**: High memory usage or slow responses
-
-**Tips**:
-- Memory usage: ~150MB is normal for Playwright
-- First chart: 5-8 seconds (browser startup)
-- Subsequent charts: 3-5 seconds
-- Browser is reused across requests for efficiency
-- If memory grows over time, restart the server
+1. Check JSON syntax in config (use a JSON validator)
+2. Use **absolute paths** only
+3. Verify Python path: `where python` (Windows)
+4. **Completely restart** Claude Desktop
+5. Check logs: `%APPDATA%\Claude\logs\`
 
 ## ⚡ Performance
 
@@ -376,80 +386,41 @@ sudo playwright install-deps
 | **Memory Usage** | ~150MB | Playwright headless browser |
 | **First Request** | 5-8 seconds | Browser startup + chart load |
 | **Subsequent Requests** | 3-5 seconds | Browser reuse (persistent) |
-| **Image Size** | 50-200KB | PNG format, varies by dimensions |
-| **Browser** | Chromium | ~150MB download (one-time) |
-
-**Comparison with Alternatives:**
-
-| Approach | Memory | Speed | Status |
-|----------|--------|-------|--------|
-| Pure HTTP | ~50MB | 1-2s | ❌ Impossible (no API exists) |
-| Selenium | ~500MB | 10-15s | ⚠️ Works but heavy |
-| **Playwright** | **~150MB** | **3-5s** | ✅ **Best option** |
+| **MT5 Fallback** | 3-6 seconds | MT5 init + render |
+| **Image Size** | 50-200KB | PNG format |
 
 ## 🔒 Security Notes
 
-- ⚠️ **Never commit your `.env` file** - it contains your session credentials
-- ⚠️ **Don't share your session cookies** - they provide full account access
-- ⚠️ **Rotate cookies regularly** - they expire after ~30 days
+- ⚠️ **Never commit your `.env` file** — it contains session credentials and MT5 credentials
+- ⚠️ **Don't share your session cookies** — they provide full TradingView account access
+- ⚠️ **Rotate cookies regularly** — they expire after ~30 days
 - ✅ `.env` is in `.gitignore` by default
-- ✅ Use environment variables or secure credential management in production
 
-## 📝 Development
-
-### Project Structure
+## 📝 Project Structure
 
 ```
 tradingview-mcp/
 ├── src/
 │   └── tradingview_mcp/
 │       ├── __init__.py
-│       └── server.py          # Main MCP server
-├── .env.example               # Template for credentials
+│       ├── server.py              # Main MCP server + MT5 fallback
+│       └── chart_template.html   # Lightweight Charts v4 template
+├── test_mt5_direct.py             # MT5 connection test script
+├── .env.example                   # Template for credentials
 ├── .gitignore
 ├── README.md
-├── requirements.txt           # Python dependencies
-└── pyproject.toml            # Project metadata
-```
-
-### Running Tests
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-```
-
-### Code Formatting
-
-```bash
-# Format code
-black src/
-
-# Lint code
-ruff check src/
+├── requirements.txt
+└── pyproject.toml
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here's how:
-
-1. Fork the repository
+1. Fork the repository on [GitHub](https://github.com/leeroyanesu/tradingview-mcp)
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Test thoroughly
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-**Development Setup:**
-```bash
-pip install -e ".[dev]"
-black src/
-ruff check src/
-```
+3. Make your changes and test thoroughly
+4. Commit (`git commit -m 'Add amazing feature'`)
+5. Push (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
 
 ## 📄 License
 
@@ -460,27 +431,28 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - [TradingView](https://www.tradingview.com) - Excellent charting platform
 - [Anthropic](https://www.anthropic.com) - Model Context Protocol
 - [Playwright](https://playwright.dev) - Browser automation
+- [Lightweight Charts](https://tradingview.github.io/lightweight-charts/) - Chart rendering for MT5 fallback
+- [MetaTrader5](https://pypi.org/project/MetaTrader5/) - Python MT5 integration
 
 ## ⚠️ Disclaimer
 
-This is an **unofficial** tool and is not affiliated with, endorsed by, or connected to TradingView. Use at your own risk and in accordance with TradingView's Terms of Service. Respect rate limits and be mindful of your usage.
+This is an **unofficial** tool and is not affiliated with, endorsed by, or connected to TradingView. Use at your own risk and in accordance with TradingView's Terms of Service.
 
-## � Support & Issues
+## 🆘 Support & Issues
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/yourusername/tradingview-mcp/issues)
-- 💬 **Questions**: [GitHub Discussions](https://github.com/yourusername/tradingview-mcp/discussions)
-- 📧 **Email**: your.email@example.com
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/leeroyanesu/tradingview-mcp/issues)
+- 💬 **Questions**: [GitHub Discussions](https://github.com/leeroyanesu/tradingview-mcp/discussions)
 
 ## 📊 Project Stats
 
-- **Version**: 0.1.0
+- **Version**: 0.2.0
 - **Python**: 3.10+
 - **Memory**: ~150MB
-- **Response Time**: 3-5 seconds
+- **Response Time**: 3-8 seconds
 - **License**: MIT
 
 ---
 
-**Made with ❤️ by the trading community**
+**Made with ❤️ by [leeroyanesu](https://github.com/leeroyanesu)**
 
 *Star ⭐ this repo if you find it useful!*

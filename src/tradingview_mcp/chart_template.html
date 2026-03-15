@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lightweight Chart</title>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
             margin: 0;
@@ -38,44 +38,67 @@
     <script>
         const container = document.getElementById('chart-container');
         const symbolLabel = document.getElementById('symbol-label');
+        window.chartReady = false;
 
         function initChart(data, symbol, theme = 'dark') {
-            const isDark = theme === 'dark';
-            symbolLabel.innerText = symbol;
+            try {
+                if (typeof LightweightCharts === 'undefined') {
+                    throw new Error('LightweightCharts library not loaded');
+                }
 
-            const chartOptions = {
-                layout: {
-                    textColor: isDark ? '#d1d4dc' : '#131722',
-                    background: { type: 'solid', color: isDark ? '#131722' : '#ffffff' },
-                },
-                grid: {
-                    vertLines: { color: isDark ? '#2B2B43' : '#f0f3fa' },
-                    horzLines: { color: isDark ? '#2B2B43' : '#f0f3fa' },
-                },
-                crosshair: {
-                    mode: LightweightCharts.CrosshairMode.Normal,
-                },
-                rightPriceScale: {
-                    borderColor: isDark ? '#2B2B43' : '#f0f3fa',
-                },
-                timeScale: {
-                    borderColor: isDark ? '#2B2B43' : '#f0f3fa',
-                    timeVisible: true,
-                    secondsVisible: false,
-                },
-            };
+                const isDark = theme === 'dark';
+                symbolLabel.innerText = symbol;
 
-            const chart = LightweightCharts.createChart(container, chartOptions);
-            const candlestickSeries = chart.addCandlestickSeries({
-                upColor: '#26a69a',
-                downColor: '#ef5350',
-                borderVisible: false,
-                wickUpColor: '#26a69a',
-                wickDownColor: '#ef5350',
-            });
+                const chartOptions = {
+                    width: container.clientWidth,
+                    height: container.clientHeight,
+                    layout: {
+                        textColor: isDark ? '#d1d4dc' : '#131722',
+                        background: { type: 'solid', color: isDark ? '#131722' : '#ffffff' },
+                    },
+                    grid: {
+                        vertLines: { color: isDark ? '#2B2B43' : '#f0f3fa' },
+                        horzLines: { color: isDark ? '#2B2B43' : '#f0f3fa' },
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                    },
+                    rightPriceScale: {
+                        borderColor: isDark ? '#2B2B43' : '#f0f3fa',
+                    },
+                    timeScale: {
+                        borderColor: isDark ? '#2B2B43' : '#f0f3fa',
+                        timeVisible: true,
+                        secondsVisible: false,
+                    },
+                };
 
-            candlestickSeries.setData(data);
-            chart.timeScale().fitContent();
+                const chart = LightweightCharts.createChart(container, chartOptions);
+                const candlestickSeries = chart.addCandlestickSeries({
+                    upColor: '#26a69a',
+                    downColor: '#ef5350',
+                    borderVisible: false,
+                    wickUpColor: '#26a69a',
+                    wickDownColor: '#ef5350',
+                });
+
+                // Normalize data: ensure time is a number (Unix seconds) or 'YYYY-MM-DD' string
+                const normalized = data.map(d => ({
+                    time: typeof d.time === 'number' ? d.time : d.time,
+                    open: d.open,
+                    high: d.high,
+                    low: d.low,
+                    close: d.close
+                }));
+
+                candlestickSeries.setData(normalized);
+                chart.timeScale().fitContent();
+                window.chartReady = true;
+            } catch(e) {
+                console.error('Chart init error:', e);
+                document.body.innerHTML += '<div style="color:red;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;">Chart Error: ' + e.message + '</div>';
+                window.chartReady = false;
+            }
         }
 
         // Data will be injected here by Python
