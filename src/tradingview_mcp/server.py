@@ -11,8 +11,7 @@ import logging
 import asyncio
 import json
 import tempfile
-from datetime import datetime
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -145,18 +144,18 @@ async def get_chart_snapshot(
         # Navigate to chart with longer timeout
         try:
             await page.goto(chart_url, wait_until="domcontentloaded", timeout=45000)
-        except:
+        except Exception:
             # Fallback: try without waiting for full network idle
             await page.goto(chart_url, timeout=45000)
         
         # Wait for chart to load (with fallback)
         try:
             await page.wait_for_selector('div[data-name="legend-source-item"]', timeout=20000)
-        except:
+        except Exception:
             # Alternative selector if the first one doesn't work
             try:
                 await page.wait_for_selector('.chart-container', timeout=10000)
-            except:
+            except Exception:
                 pass  # Continue anyway
         
         # Additional wait for chart rendering
@@ -298,7 +297,6 @@ async def render_lightweight_chart(
         
         # Write to a temp file and load via file:// so external CDN scripts load properly.
         # page.set_content() can block external script loading in some Playwright versions.
-        import tempfile, os as _os
         with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
             f.write(html)
             tmp_path = f.name
@@ -332,8 +330,7 @@ async def render_lightweight_chart(
     finally:
         if tmp_path:
             try:
-                import os as _os
-                _os.unlink(tmp_path)
+                os.unlink(tmp_path)
             except Exception:
                 pass
 
