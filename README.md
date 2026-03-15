@@ -102,29 +102,22 @@ python -m playwright install chromium
 
 ### 5. Test your setup (Optional but recommended)
 
+You can test the library import and basic functionality:
+
 ```bash
-python test_mt5_direct.py
+# Windows
+set PYTHONPATH=src
+python -c "from tradingview_mcp.server import TradingViewClient; print('Import successful')"
+
+# Linux/Mac
+export PYTHONPATH=src
+python3 -c "from tradingview_mcp.server import TradingViewClient; print('Import successful')"
 ```
 
-If MT5 initializes successfully you'll see account info printed. You can also test the TradingView snapshot:
+Or run the bundled test script:
 
-```python
-import asyncio, sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-from dotenv import load_dotenv
-load_dotenv()
-from tradingview_mcp.server import get_chart_snapshot
-
-async def test():
-    image = await get_chart_snapshot("BINANCE:BTCUSDT", "D", 1200, 600, "dark")
-    if image:
-        Path("test_chart.png").write_bytes(image)
-        print(f"✅ Success! Chart saved to test_chart.png ({len(image)} bytes)")
-    else:
-        print("❌ Failed to fetch chart")
-
-asyncio.run(test())
+```bash
+python test_tradingview_direct.py
 ```
 
 ## 🎯 Usage
@@ -182,18 +175,38 @@ Add this to your Claude Desktop config file:
 
 **Restart Claude Desktop** and you'll see the TradingView tools available!
 
-### Example Queries in Claude
+### Python Library Usage
 
+You can use the `TradingViewClient` directly in your Python projects:
+
+```python
+import asyncio
+from tradingview_mcp.server import TradingViewClient
+from dotenv import load_dotenv
+
+async def main():
+    load_dotenv()
+    
+    # Initialize client (uses .env by default)
+    client = TradingViewClient()
+    
+    # Fetch a chart snapshot
+    # Automatically falls back to MT5 if TradingView fails
+    image = await client.get_chart_snapshot("BINANCE:BTCUSDT", interval="D")
+    
+    if image:
+        with open("btc_chart.png", "wb") as f:
+            f.write(image)
+        print("Chart saved!")
+    
+    # Don't forget to close!
+    await client.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
-- "Get me a daily chart of Bitcoin"
-- "Show me AAPL on 1-hour timeframe"
-- "Fetch a weekly chart for NASDAQ:TSLA with light theme"
-- "Get BINANCE:ETHUSDT 5-minute chart"
-- "Show me Volatility 50 Index on a daily chart"
-- "Render a chart from this OHLC data: [...]"
-- "Validate my TradingView session"
-- "What timeframes are available?"
-```
+
+> **Note**: When running as a library from the source, ensure `src` is in your `PYTHONPATH` or install in editable mode: `pip install -e .`
 
 ## 🛠️ Available Tools
 
@@ -445,7 +458,7 @@ This is an **unofficial** tool and is not affiliated with, endorsed by, or conne
 
 ## 📊 Project Stats
 
-- **Version**: 0.2.0
+- **Version**: 0.3.0
 - **Python**: 3.10+
 - **Memory**: ~150MB
 - **Response Time**: 3-8 seconds
