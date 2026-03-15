@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lightweight Chart</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #131722;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif;
+        }
+        #chart-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #symbol-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            color: #d1d4dc;
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: none;
+            background: rgba(19, 23, 34, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="symbol-label">SYMBOL</div>
+    <div id="chart-container"></div>
+    <script>
+        const container = document.getElementById('chart-container');
+        const symbolLabel = document.getElementById('symbol-label');
+
+        function initChart(data, symbol, theme = 'dark') {
+            const isDark = theme === 'dark';
+            symbolLabel.innerText = symbol;
+
+            const chartOptions = {
+                layout: {
+                    textColor: isDark ? '#d1d4dc' : '#131722',
+                    background: { type: 'solid', color: isDark ? '#131722' : '#ffffff' },
+                },
+                grid: {
+                    vertLines: { color: isDark ? '#2B2B43' : '#f0f3fa' },
+                    horzLines: { color: isDark ? '#2B2B43' : '#f0f3fa' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: isDark ? '#2B2B43' : '#f0f3fa',
+                },
+                timeScale: {
+                    borderColor: isDark ? '#2B2B43' : '#f0f3fa',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+            };
+
+            const chart = LightweightCharts.createChart(container, chartOptions);
+            const candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderVisible: false,
+                wickUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+            });
+
+            candlestickSeries.setData(data);
+            chart.timeScale().fitContent();
+        }
+
+        // Data will be injected here by Python
+        // window.chartData = { data: [...], symbol: '...', theme: '...' };
+        // initChart(window.chartData.data, window.chartData.symbol, window.chartData.theme);
+    </script>
+</body>
+</html>
