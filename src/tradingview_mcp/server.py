@@ -353,10 +353,11 @@ async def list_tools() -> list[Tool]:
     """List available MCP tools."""
     return [
         Tool(
-            name="get_chart_with_fallback",
-            description="Attempt to fetch a TradingView chart snapshot. If it fails or the symbol is not found "
-                        "after 2 attempts, automatically falls back to MetaTrader 5 data and renders a similar "
-                        "chart using the Lightweight Charts library. Returns the chart as a base64 PNG image.",
+            name="get_chart_snapshot",
+            description="Fetch a chart snapshot for a given symbol and timeframe. "
+                       "Automatically falls back to MetaTrader 5 rendering if the symbol is not found on TradingView. "
+                       "Returns the chart as a base64-encoded PNG image. "
+                       "Symbol format: 'EXCHANGE:SYMBOL' or just 'SYMBOL' (e.g., 'BINANCE:BTCUSDT', 'Volatility 50 Index').",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -371,17 +372,17 @@ async def list_tools() -> list[Tool]:
                     },
                     "width": {
                         "type": "number",
-                        "description": "Image width (default: 1200)",
+                        "description": "Image width in pixels (default: 1200)",
                         "default": 1200
                     },
                     "height": {
                         "type": "number",
-                        "description": "Image height (default: 600)",
+                        "description": "Image height in pixels (default: 600)",
                         "default": 600
                     },
                     "theme": {
                         "type": "string",
-                        "description": "Chart theme: 'dark' or 'light'",
+                        "description": "Chart theme: 'dark' or 'light' (default: dark)",
                         "default": "dark",
                         "enum": ["dark", "light"]
                     }
@@ -427,44 +428,6 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="get_chart_snapshot",
-            description="Fetch a TradingView chart snapshot for a given symbol and timeframe. "
-                       "Returns the chart as a base64-encoded PNG image. "
-                       "Symbol format: 'EXCHANGE:SYMBOL' (e.g., 'BINANCE:BTCUSDT', 'NASDAQ:AAPL'). "
-                       "Timeframes: 1, 5, 15, 30, 60, 240 (minutes) or D, W, M (day/week/month).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "symbol": {
-                        "type": "string",
-                        "description": "Trading symbol in TradingView format (e.g., 'BINANCE:BTCUSDT')"
-                    },
-                    "interval": {
-                        "type": "string",
-                        "description": "Chart interval: 1, 5, 15, 30, 60, 240 (minutes) or D, W, M",
-                        "default": "D"
-                    },
-                    "width": {
-                        "type": "number",
-                        "description": "Image width in pixels (default: 1200)",
-                        "default": 1200
-                    },
-                    "height": {
-                        "type": "number",
-                        "description": "Image height in pixels (default: 600)",
-                        "default": 600
-                    },
-                    "theme": {
-                        "type": "string",
-                        "description": "Chart theme: 'dark' or 'light' (default: dark)",
-                        "default": "dark",
-                        "enum": ["dark", "light"]
-                    }
-                },
-                "required": ["symbol"]
-            }
-        ),
-        Tool(
             name="validate_session",
             description="Validate if the TradingView session credentials are working correctly.",
             inputSchema={
@@ -498,7 +461,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
                  "TRADINGVIEW_SESSION_ID_SIGN in your .env file."
         )]
     
-    if name == "get_chart_with_fallback":
+    elif name == "get_chart_snapshot":
         symbol = arguments.get("symbol")
         interval = str(arguments.get("interval", "D"))
         width = int(arguments.get("width", 1200))
@@ -508,7 +471,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
         if not symbol:
             return [TextContent(type="text", text="Error: 'symbol' parameter is required.")]
             
-        logger.info(f"Fetching chart with fallback for {symbol} ({interval})")
+        logger.info(f"Fetching chart for {symbol} ({interval}) [With Auto-Fallback]")
         
         # Attempt 1: TradingView
         image_data = await get_chart_snapshot(str(symbol), interval, width, height, theme)
@@ -518,7 +481,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
             logger.info("TradingView attempt 1 failed, retrying...")
             image_data = await get_chart_snapshot(str(symbol), interval, width, height, theme)
             
-        source = "TradingView"
+        source = "TradingView (Snapshot)"
         if not image_data:
             logger.info("TradingView failed. Falling back to MetaTrader 5...")
             ohlc_data = await get_mt5_ohlc(str(symbol), interval)
@@ -533,7 +496,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
             return [
                 TextContent(
                     type="text",
-                    text=f"Chart snapshot for {symbol} ({interval})\nSource: {source}\nSize: {width}x{height}"
+                    text=f"Chart for {symbol} ({interval})\nSource: {source}\nSize: {width}x{height}"
                 ),
                 ImageContent(
                     type="image",
@@ -603,34 +566,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
         else:
             return [TextContent(type="text", text="Failed to render chart image.")]
 
-    elif name == "get_chart_snapshot":
-        symbol = arguments.get("symbol")
-        interval = arguments.get("interval", "D")
-        width = int(arguments.get("width", 1200))
-        height = int(arguments.get("height", 600))
-        theme = arguments.get("theme", "dark")
-        
-        if not symbol:
-            return [TextContent(type="text", text="Error: 'symbol' parameter is required.")]
-            
-        logger.info(f"Fetching TradingView chart snapshot for {symbol} ({interval})")
-        image_data = await get_chart_snapshot(symbol, interval, width, height, theme)
-        
-        if image_data:
-            image_base64 = base64.b64encode(image_data).decode('utf-8')
-            return [
-                TextContent(
-                    type="text",
-                    text=f"Chart snapshot for {symbol} ({interval})\nSource: TradingView\nSize: {width}x{height}"
-                ),
-                ImageContent(
-                    type="image",
-                    data=image_base64,
-                    mimeType="image/png"
-                )
-            ]
-        else:
-            return [TextContent(type="text", text="Failed to fetch chart snapshot from TradingView.")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
