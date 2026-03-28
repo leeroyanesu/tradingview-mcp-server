@@ -44,14 +44,6 @@ class TradingViewClient:
         session_id_sign: Optional[str] = None,
         mt5_config: Optional[Dict[str, Any]] = None,
     ):
-        """
-        Initialize the TradingView client.
-
-        Args:
-            session_id: TradingView sessionid cookie
-            session_id_sign: TradingView sessionid_sign cookie
-            mt5_config: Optional dict with MT5 keys (login, password, server, path)
-        """
         self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID")
         self.session_id_sign = session_id_sign or os.getenv("TRADINGVIEW_SESSION_ID_SIGN")
         self.mt5_config = mt5_config or {
@@ -125,10 +117,76 @@ class TradingViewClient:
                     "secure": True,
                     "sameSite": "Lax",
                 },
+                {
+                    "name": "g_state",
+                    "value": '{"i_l":1,"i_ll":1773910627140,"i_e":{"enable_itp_optimization":0}}',
+                    "domain": ".tradingview.com",
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": False,
+                    "sameSite": "Lax",
+                },
             ]
         )
         logger.info("Browser context created with authentication")
         return self._context
+
+    async def _dismiss_popup(self, page, width: int = 1200, height: int = 600) -> None:
+        """Attempt to dismiss any promotional or modal popup on TradingView."""
+
+        # Strategy 1: Escape key
+        try:
+            await page.keyboard.press("Escape")
+            logger.info("Sent Escape key")
+            await asyncio.sleep(0.8)
+        except Exception:
+            pass
+
+        # Strategy 2: Click main popup X — top-right of the overlay
+        # Observed position: ~86% from left, ~9% from top
+        try:
+            x = int(width * 0.86)
+            y = int(height * 0.09)
+            await page.mouse.click(x, y)
+            logger.info(f"Clicked main popup X at ({x}, {y})")
+            await asyncio.sleep(0.8)
+        except Exception:
+            pass
+
+        # Strategy 3: Click bottom-left toast popup X
+        # Observed position: ~37% from left, ~80% from top
+        try:
+            x2 = int(width * 0.37)
+            y2 = int(height * 0.80)
+            await page.mouse.click(x2, y2)
+            logger.info(f"Clicked toast popup X at ({x2}, {y2})")
+            await asyncio.sleep(0.8)
+        except Exception:
+            pass
+
+        # Strategy 4: JS — click ALL visible close/dismiss buttons across the entire page
+        try:
+            await page.evaluate("""
+                () => {
+                    const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+                    for (const btn of btns) {
+                        const r = btn.getBoundingClientRect();
+                        if (r.width === 0 || r.height === 0) continue;
+                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        const dataName = (btn.getAttribute('data-name') || '').toLowerCase();
+                        const text = (btn.textContent || '').trim().toLowerCase();
+                        if (label === 'close' || dataName === 'close-button' || text === '×' || text === 'x') {
+                            btn.click();
+                        }
+                    }
+                }
+            """)
+            logger.info("Ran JS sweep for all close buttons")
+            await asyncio.sleep(0.8)
+        except Exception:
+            pass
+
+        logger.info("Popup dismiss complete")
 
     async def get_chart_snapshot(
         self,
@@ -165,6 +223,10 @@ class TradingViewClient:
                     pass
 
             await asyncio.sleep(3)
+
+            # Dismiss any popup before screenshotting
+            await self._dismiss_popup(page, width, height)
+            await asyncio.sleep(1)
 
             content = await page.content()
             invalid_indicators = [
@@ -566,7 +628,6 @@ async def main():
     """Run the MCP server."""
     logger.info("Starting TradingView MCP Server with Playwright...")
 
-    # Validate environment variables
     if not os.getenv("TRADINGVIEW_SESSION_ID") or not os.getenv("TRADINGVIEW_SESSION_ID_SIGN"):
         logger.warning(
             "Warning: TradingView credentials not found in environment. "
